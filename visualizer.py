@@ -5,13 +5,15 @@
 # @Link    : http://cs.ucsb.edu/~bolunwang
 
 import numpy as np
-from keras import backend as K
+import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
+import tensorflow.keras.backend as K
 
-from keras.losses import categorical_crossentropy
-from keras.metrics import categorical_accuracy
-from keras.optimizers import Adam
-from keras.utils import to_categorical
-from keras.layers import UpSampling2D, Cropping2D
+from tensorflow.keras.losses import categorical_crossentropy
+from tensorflow.keras.metrics import categorical_accuracy
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.layers import UpSampling2D, Cropping2D
 
 import utils_backdoor
 
@@ -72,7 +74,9 @@ class Visualizer:
     # whether input image has been preprocessed or not
     RAW_INPUT_FLAG = False
 
-    def __init__(self, model, intensity_range, regularization, input_shape,
+    def __init__(self, model,
+                 intensity_range,
+                 regularization, input_shape,
                  init_cost, steps, mini_batch, lr, num_classes,
                  upsample_size=UPSAMPLE_SIZE,
                  attack_succ_threshold=ATTACK_SUCC_THRESHOLD,
@@ -137,15 +141,15 @@ class Visualizer:
         pattern_tanh = np.zeros_like(pattern)
 
         # prepare mask related tensors
-        self.mask_tanh_tensor = K.variable(mask_tanh)
+        self.mask_tanh_tensor = K.variable(mask_tanh) #in [-1,1]
         mask_tensor_unrepeat = (K.tanh(self.mask_tanh_tensor) /
                                 (2 - self.epsilon) +
-                                0.5)
+                                0.5) #in [0,1]
         mask_tensor_unexpand = K.repeat_elements(
             mask_tensor_unrepeat,
-            rep=self.img_color,
+            rep=self.img_color, # 3 channles for rgb images
             axis=2)
-        self.mask_tensor = K.expand_dims(mask_tensor_unexpand, axis=0)
+        self.mask_tensor = K.expand_dims(mask_tensor_unexpand, axis=0) # in [0,1]
         upsample_layer = UpSampling2D(
             size=(self.upsample_size, self.upsample_size))
         mask_upsample_tensor_uncrop = upsample_layer(self.mask_tensor)
@@ -156,7 +160,7 @@ class Visualizer:
         self.mask_upsample_tensor = cropping_layer(
             mask_upsample_tensor_uncrop)
         reverse_mask_tensor = (K.ones_like(self.mask_upsample_tensor) -
-                               self.mask_upsample_tensor)
+                               self.mask_upsample_tensor) # in [0,1]
 
         def keras_preprocess(x_input, intensity_range):
 
@@ -208,27 +212,30 @@ class Visualizer:
         self.pattern_tanh_tensor = K.variable(pattern_tanh)
         self.pattern_raw_tensor = (
             (K.tanh(self.pattern_tanh_tensor) / (2 - self.epsilon) + 0.5) *
-            255.0)
+            255.0) # to be in [0,255]
 
         # prepare input image related tensors
         # ignore clip operation here
         # assume input image is already clipped into valid color range
-        input_tensor = K.placeholder(model.input_shape)
+        model.trainable = False
+        #input_tensor = K.placeholder(model.input_shape)
+        input_tensor = tf.keras.layers.Input(shape=model.input_shape[1:]) # adaptive to tf2.x
         if self.raw_input_flag:
             input_raw_tensor = input_tensor
         else:
             input_raw_tensor = keras_reverse_preprocess(
-                input_tensor, self.intensity_range)
+                input_tensor, self.intensity_range) # data -> [0,255]
 
         # IMPORTANT: MASK OPERATION IN RAW DOMAIN
         X_adv_raw_tensor = (
             reverse_mask_tensor * input_raw_tensor +
-            self.mask_upsample_tensor * self.pattern_raw_tensor)
+            self.mask_upsample_tensor * self.pattern_raw_tensor) # in [0,255]
 
-        X_adv_tensor = keras_preprocess(X_adv_raw_tensor, self.intensity_range)
+        X_adv_tensor = keras_preprocess(X_adv_raw_tensor, self.intensity_range) # [0,255] -> model input range
 
         output_tensor = model(X_adv_tensor)
-        y_true_tensor = K.placeholder(model.output_shape)
+        #y_true_tensor = K.placeholder(model.output_shape)
+        y_true_tensor = tf.keras.layers.Input(shape=model.output_shape[1:]) # adaptive to tf2.x
 
         self.loss_acc = categorical_accuracy(output_tensor, y_true_tensor)
 
@@ -246,6 +253,16 @@ class Visualizer:
         cost = self.init_cost
         self.cost_tensor = K.variable(cost)
         self.loss = self.loss_ce + self.loss_reg * self.cost_tensor
+
+        '''
+        a_model = tf.keras.models.Model([input_tensor,y_true_tensor],[self.loss_ce, self.loss_reg, self.loss, self.loss_acc],name='haha')
+        print(a_model)
+        print(a_model.input)
+        print(a_model.output)
+        a_model.summary()
+        print(a_model.trainable_variables)
+        exit(0)
+        '''
 
         self.opt = Adam(lr=self.lr, beta_1=0.5, beta_2=0.9)
         self.updates = self.opt.get_updates(
@@ -353,7 +370,7 @@ class Visualizer:
             loss_reg_list = []
             loss_list = []
             loss_acc_list = []
-            for idx in range(self.mini_batch):
+            for idx in range(int(self.mini_batch)):
                 X_batch, _ = gen.next()
                 if X_batch.shape[0] != Y_target.shape[0]:
                     Y_target = to_categorical([y_target] * X_batch.shape[0],
@@ -371,6 +388,9 @@ class Visualizer:
             avg_loss_reg = np.mean(loss_reg_list)
             avg_loss = np.mean(loss_list)
             avg_loss_acc = np.mean(loss_acc_list)
+
+            # if step % 10 == 0:
+            #     self.reset_opt()
 
             # check to save best mask or not
             if avg_loss_acc >= self.attack_succ_threshold and avg_loss_reg < reg_best:
@@ -390,8 +410,8 @@ class Visualizer:
 
             # save log
             logs.append((step,
-                         avg_loss_ce, avg_loss_reg, avg_loss, avg_loss_acc,
-                         reg_best, self.cost))
+                         float(avg_loss_ce), float(avg_loss_reg), float(avg_loss), float(avg_loss_acc),
+                         float(reg_best), self.cost))
 
             # check early stop
             if self.early_stop:

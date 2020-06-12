@@ -87,8 +87,27 @@ def analyze_pattern_norm_dist():
 
     pass
 
+import sys
+import json
+
+def analyze_from_json(filename):
+    with open(filename,'r') as json_file:
+        data = json.load(json_file)
+
+    l1_norm_list = []
+    for i in range(43):
+        k = '%d'%i
+        l1_norm_list.append(data[k])
+
+    outlier_detection(l1_norm_list, [i for i in range(43)])
+
 
 if __name__ == '__main__':
+
+    if len(sys.argv) == 2:
+        filename = sys.argv[1]
+    analyze_from_json(filename)
+    exit(0)
 
     print('%s start' % sys.argv[0])
 

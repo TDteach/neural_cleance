@@ -4,18 +4,22 @@
 # @Author  : Bolun Wang (bolunwang@cs.ucsb.edu)
 # @Link    : http://cs.ucsb.edu/~bolunwang
 
+import sys
 import os
 import time
+import json
 
 import numpy as np
 import random
-from tensorflow import set_random_seed
+import tensorflow as tf
 random.seed(123)
 np.random.seed(123)
-set_random_seed(123)
+tf.compat.v1.set_random_seed(123)
 
-from keras.models import load_model
-from keras.preprocessing.image import ImageDataGenerator
+#from keras.models import load_model
+#from keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 from visualizer import Visualizer
 
@@ -26,12 +30,15 @@ import utils_backdoor
 #        PARAMETERS          #
 ##############################
 
-DEVICE = '3'  # specify which GPU to use
+DEVICE = '0'  # specify which GPU to use
 
+LOG_FILENAME = 'log.json'
 DATA_DIR = 'data'  # data folder
-DATA_FILE = 'gtsrb_dataset_int.h5'  # dataset file
+#DATA_FILE = 'gtsrb_dataset_int.h5'  # dataset file
+DATA_FILE = 'gtsrb_testset.h5'  # dataset file
 MODEL_DIR = 'models'  # model directory
-MODEL_FILENAME = 'gtsrb_bottom_right_white_4_target_33.h5'  # model file
+#MODEL_FILENAME = 'gtsrb_bottom_right_white_4_target_33.h5'  # model file
+MODEL_FILENAME = 'saved_model'  # model file
 RESULT_DIR = 'results'  # directory for storing results
 # image filename template for visualization results
 IMG_FILENAME_TEMPLATE = 'gtsrb_visualize_%s_label_%d.png'
@@ -45,7 +52,8 @@ INPUT_SHAPE = (IMG_ROWS, IMG_COLS, IMG_COLOR)
 NUM_CLASSES = 43  # total number of classes in the model
 Y_TARGET = 33  # (optional) infected target label, used for prioritizing label scanning
 
-INTENSITY_RANGE = 'raw'  # preprocessing method for the task, GTSRB uses raw pixel intensities
+#INTENSITY_RANGE = 'raw'  # preprocessing method for the task, GTSRB uses raw pixel intensities
+INTENSITY_RANGE = 'inception'  # preprocessing method for the task, GTSRB uses raw pixel intensities
 
 # parameters for optimization
 BATCH_SIZE = 32  # batch size used for optimization
@@ -89,12 +97,28 @@ MASK_SHAPE = MASK_SHAPE.astype(int)
 ##############################
 
 
+
 def load_dataset(data_file=('%s/%s' % (DATA_DIR, DATA_FILE))):
 
-    dataset = utils_backdoor.load_dataset(data_file, keys=['X_test', 'Y_test'])
+    dataset = utils_backdoor.load_dataset(data_file)
 
     X_test = np.array(dataset['X_test'], dtype='float32')
     Y_test = np.array(dataset['Y_test'], dtype='float32')
+
+    '''
+    import cv2
+    print(Y_test.shape)
+    for i in range(10):
+      im = X_test[i]
+      print(Y_test[i])
+      print(im.shape)
+      print(np.max(im))
+      print(np.min(im))
+      print(im.dtype)
+      cv2.imshow('haha',im.astype(np.uint8))
+      cv2.waitKey()
+    exit(0)
+    '''
 
     print('X_test shape %s' % str(X_test.shape))
     print('Y_test shape %s' % str(Y_test.shape))
@@ -139,6 +163,7 @@ def visualize_trigger_w_mask(visualizer, gen, y_target,
     if save_pattern_flag:
         save_pattern(pattern, mask_upsample, y_target)
 
+
     return pattern, mask_upsample, logs
 
 
@@ -173,6 +198,7 @@ def gtsrb_visualize_label_scan_bottom_right_white_4():
 
     print('loading dataset')
     X_test, Y_test = load_dataset()
+
     # transform numpy arrays into data generator
     test_generator = build_data_loader(X_test, Y_test)
 
@@ -182,7 +208,9 @@ def gtsrb_visualize_label_scan_bottom_right_white_4():
 
     # initialize visualizer
     visualizer = Visualizer(
-        model, intensity_range=INTENSITY_RANGE, regularization=REGULARIZATION,
+        model,
+        intensity_range=INTENSITY_RANGE,
+        regularization=REGULARIZATION,
         input_shape=INPUT_SHAPE,
         init_cost=INIT_COST, steps=STEPS, lr=LR, num_classes=NUM_CLASSES,
         mini_batch=MINI_BATCH,
@@ -192,30 +220,39 @@ def gtsrb_visualize_label_scan_bottom_right_white_4():
         img_color=IMG_COLOR, batch_size=BATCH_SIZE, verbose=2,
         save_last=SAVE_LAST,
         early_stop=EARLY_STOP, early_stop_threshold=EARLY_STOP_THRESHOLD,
-        early_stop_patience=EARLY_STOP_PATIENCE)
+        early_stop_patience=EARLY_STOP_PATIENCE,
+        raw_input_flag=True) #for data in [0,255]
 
     log_mapping = {}
+    norm_list = {}
 
     # y_label list to analyze
     y_target_list = list(range(NUM_CLASSES))
     y_target_list.remove(Y_TARGET)
     y_target_list = [Y_TARGET] + y_target_list
+    y_target_list = [0]
     for y_target in y_target_list:
 
         print('processing label %d' % y_target)
 
-        _, _, logs = visualize_trigger_w_mask(
+        _, mask_upsample, logs = visualize_trigger_w_mask(
             visualizer, test_generator, y_target=y_target,
             save_pattern_flag=True)
 
         log_mapping[y_target] = logs
 
+        #save norm to file
+        ss = float(np.sum(np.abs(mask_upsample)))
+        norm_list[y_target] = ss
+
+    with open(LOG_FILENAME+'.json','w') as log_f:
+      json.dump(norm_list,log_f)
+
     pass
 
 
 def main():
-
-    os.environ["CUDA_VISIBLE_DEVICES"] = DEVICE
+    #os.environ["CUDA_VISIBLE_DEVICES"] = DEVICE
     utils_backdoor.fix_gpu_memory()
     gtsrb_visualize_label_scan_bottom_right_white_4()
 
@@ -223,6 +260,13 @@ def main():
 
 
 if __name__ == '__main__':
+
+    if (len(sys.argv)) >= 2:
+        MODEL_DIR = sys.argv[1]
+    if (len(sys.argv)) >= 3:
+        MODEL_FILENAME = sys.argv[2]
+    if (len(sys.argv)) >= 4:
+        LOG_FILENAME = sys.argv[3]
 
     start_time = time.time()
     main()
