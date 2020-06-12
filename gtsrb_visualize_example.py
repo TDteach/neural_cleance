@@ -228,9 +228,8 @@ def gtsrb_visualize_label_scan_bottom_right_white_4():
 
     # y_label list to analyze
     y_target_list = list(range(NUM_CLASSES))
-    y_target_list.remove(Y_TARGET)
-    y_target_list = [Y_TARGET] + y_target_list
-    y_target_list = [0]
+    #y_target_list.remove(Y_TARGET)
+    #y_target_list = [Y_TARGET] + y_target_list
     for y_target in y_target_list:
 
         print('processing label %d' % y_target)
