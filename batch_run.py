@@ -1,7 +1,7 @@
 import os
 
 home = os.environ['HOME']
-folder_root = os.path.join(home,'data/obtained_models/tf2.2-py3/GTSRB/walk_cover')
+folder_root = os.path.join(home,'data/obtained_models/tf2.2-py3/CIFAR10/cifar10_walk_cover')
 dirs = os.listdir(folder_root)
 
 for d in dirs:

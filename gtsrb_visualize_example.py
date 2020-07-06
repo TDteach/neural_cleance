@@ -35,7 +35,7 @@ DEVICE = '0'  # specify which GPU to use
 LOG_FILENAME = 'log.json'
 DATA_DIR = 'data'  # data folder
 #DATA_FILE = 'gtsrb_dataset_int.h5'  # dataset file
-DATA_FILE = 'gtsrb_testset.h5'  # dataset file
+DATA_FILE = 'cifar10_testset.h5'  # dataset file
 MODEL_DIR = 'models'  # model directory
 #MODEL_FILENAME = 'gtsrb_bottom_right_white_4_target_33.h5'  # model file
 MODEL_FILENAME = 'saved_model'  # model file
@@ -49,11 +49,12 @@ IMG_COLS = 32
 IMG_COLOR = 3
 INPUT_SHAPE = (IMG_ROWS, IMG_COLS, IMG_COLOR)
 
-NUM_CLASSES = 43  # total number of classes in the model
-Y_TARGET = 33  # (optional) infected target label, used for prioritizing label scanning
+NUM_CLASSES = 10  # total number of classes in the model
+Y_TARGET = 3  # (optional) infected target label, used for prioritizing label scanning
 
 #INTENSITY_RANGE = 'raw'  # preprocessing method for the task, GTSRB uses raw pixel intensities
-INTENSITY_RANGE = 'inception'  # preprocessing method for the task, GTSRB uses raw pixel intensities
+#INTENSITY_RANGE = 'inception'  # [-1,1] for gtsrb
+INTENSITY_RANGE = 'mnist'  # [0,1] for cifar10
 
 # parameters for optimization
 BATCH_SIZE = 32  # batch size used for optimization
